@@ -1,0 +1,21 @@
+{
+    "name": "cluster-magic",
+    "description": "run multi-threaded node.js network applications using the native cluster module",
+    "version": "1.0.0",
+    "author": "Andi Dittrich",
+    "bin": {},
+    "engines": {
+        "node": ">=8"
+    },
+    "scripts": {
+        "test": "eslint cluster-magic.js; mocha"
+    },
+    "dependencies": {
+        "logging-facility": "^1.1.0"
+    },
+    "devDependencies": {
+        "eslint": "^4.15.0",
+        "eslint-config-aenondynamics": "^0.2.0",
+        "mocha": "^5.0.0"
+    }
+}
