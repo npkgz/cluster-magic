@@ -1,7 +1,7 @@
 const _cluster = require('cluster');
 const _os = require('os');
 const _logger = require('logging-facility').getLogger('cluster');
-const _workerShutdownTimeout = 5000;
+const _workerShutdownTimeout = 10*1000;
 const _numDefaultWorkers = _os.cpus().length * 2;
 
 function startWorker(){
@@ -13,9 +13,23 @@ function startWorker(){
 
 // worker gracefull shutdown
 function stopWorker(worker, cb){
+    // flag
+    let cbResolved = false;
+    function resolve(err){
+        // singleton
+        if (cbResolved === false){
+            cbResolved = true;
+            cb(err);
+        }
+    }
+
     // set kill timeout
     const killTimeout = setTimeout(() => {
+        // kill the worker
         worker.kill();
+         
+        // failed to disconnect within given time
+        resolve(new Error('process killed by timeout - disconnect() failed'));
     }, _workerShutdownTimeout);
 
     // trigger disconnect
@@ -26,7 +40,8 @@ function stopWorker(worker, cb){
         // disable kill timer
         clearTimeout(killTimeout);
 
-        cb(null);
+        // ok
+        resolve(null);
     });
 }
 
