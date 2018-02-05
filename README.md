@@ -11,6 +11,7 @@ run multi-threaded node.js network applications using the native [cluster module
 * Respawn dead/failed workers
 * Gracefull application shutdown via `sigterm`
 * Hot-Reload/Hot-Restart via `sighup`
+* Delayed restart of failed processes to avoid infinite restart loops
 
 ## Install ##
 
@@ -21,7 +22,26 @@ $ yarn add cluster-magic
 
 ## Usage ##
 
+A working snippet is available in the [examples directory](examples/). Just run `node examples/startup.js`
+
+**File: startup.js**
+
+Initializes the cluster application
+
+```js
+const _cluster = require('cluster-magic');
+const _app = require('./application.js');
+
+// start the clustered app (8 workers)
+_cluster.init(_app, {
+    numWorkers: 8
+});
+```
+
 **File: application.js**
+
+Your socket based application which should be multiplexed
+
 ```js
 const net = require('net');
 
@@ -37,17 +57,6 @@ module.exports = {
     // init hook
     init: startup
 };
-```
-
-**File: startup.js**
-```js
-const _cluster = require('cluster-magic');
-const _app = require('./application.js');
-
-// start the clustered app (8 workers)
-_cluster.init(_app, {
-    numWorkers: 8
-});
 ```
 
 ## Hot-Restart / Hot-Reload ##
@@ -66,6 +75,16 @@ kill -HUP 12345
 
 * **SIGHUP** Restart workers
 * **SIGTERM** Gracefull application shutdown
+* **SIGINT** Gracefull application shutdown
+
+## Delayed Restarts ##
+
+cluster-magic comes with as simple delayed-restart policy which suppresses infinite restart loops.
+
+* In case a process dies, an internal counter will be incremented. 
+* If a threshold of **10** is reached the process restart is delayed by `counter*200ms` to avoid infinite restart loops on internal application errors.
+  Well..this is may not what you expect from a "clustered application" but such an error requires that a **manual fix** will take place by the operations team (_logger.alert event is triggerd which **SHOULD** be observed)
+* The counter is decremented by 1 once per minute.
 
 ## Environment ##
 

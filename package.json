@@ -1,7 +1,7 @@
 {
     "name": "cluster-magic",
     "description": "run multi-threaded node.js network applications using the native cluster module",
-    "version": "1.0.2",
+    "version": "1.1.0",
     "author": "Andi Dittrich",
     "license": "MIT",
     "homepage": "https://github.com/AndiDittrich/Node.cluster-magic",

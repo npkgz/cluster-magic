@@ -1,82 +1,9 @@
 const _cluster = require('cluster');
 const _os = require('os');
 const _logger = require('logging-facility').getLogger('cluster');
-const _workerShutdownTimeout = 10*1000;
 const _numDefaultWorkers = _os.cpus().length * 2;
-
-function startWorker(){
-    // create a new child process
-    // note: this method RELOADS the entire js file/module! - it is NOT a classical process.fork() !
-    // this allows you to hot-reload your application by restarting the workers
-    return _cluster.fork();
-}
-
-// worker gracefull shutdown
-function stopWorker(worker, cb){
-    // flag
-    let cbResolved = false;
-    function resolve(err){
-        // singleton
-        if (cbResolved === false){
-            cbResolved = true;
-            cb(err);
-        }
-    }
-
-    // set kill timeout
-    const killTimeout = setTimeout(() => {
-        // kill the worker
-        worker.kill();
-         
-        // failed to disconnect within given time
-        resolve(new Error('process killed by timeout - disconnect() failed'));
-    }, _workerShutdownTimeout);
-
-    // trigger disconnect
-    worker.disconnect();
-
-    // wait for exit + disconnect
-    worker.on('disconnect', () => {
-        // disable kill timer
-        clearTimeout(killTimeout);
-
-        // ok
-        resolve(null);
-    });
-}
-
-// hot-restart the cluster without downtime (restart workers in a row)
-function hotReload(cb){
-
-    // get currently active workers
-    const restartList = Object.keys(_cluster.workers);
-
-    // counter of processed workers
-    let numRestartedWorkers = restartList.length;
-
-    // restart each worker
-    restartList.map((workerID) => {
-        // start new child process
-        const newWorker = startWorker();
-
-        // remove old worker when the new one is online!
-        newWorker.once('listening', () => {
-
-            // get worker by id
-            const worker = _cluster.workers[workerID];
-
-            stopWorker(worker, () => {
-                // decrement job finish counter
-                numRestartedWorkers--;
-
-                // all workers restarted ?
-                if (numRestartedWorkers<=0){
-                    cb(null, true);
-                }
-            });
-        })
-    });
-}
+const _workerManager = require('./lib/worker-manager');
+const _hotReload = require('./lib/hot-reload')
 
 // cluster startup
 function initializeCluster(options={}){
@@ -93,22 +20,34 @@ function initializeCluster(options={}){
     }
 
     // show num workers
-    _logger.info(`master process ${process.pid} online`);
-    _logger.info(`starting ${numWorkers} workers (default=${_numDefaultWorkers})`);
+    _logger.notice(`master process ${process.pid} online`);
+    _logger.notice(`starting ${numWorkers} workers (default=${_numDefaultWorkers})`);
 
+    // initialize restrat delay observer
+    _workerManager.initRestartObserver();
+ 
     // gracefull cluster shutdown
     /* eslint no-process-exit: 0 */
     process.on('SIGTERM', () => {
-        _logger.info(`graceful shutdown requested by SIGTERM`);
-        _cluster.disconnect(() => {
-            _logger.info(`workers disconnected`);
-            process.exit(0);
-        });
+        _logger.notice(`graceful shutdown requested by SIGTERM`);
+        _workerManager.shutdown()
+            .then(() => {
+                _logger.info(`workers disconnected`);
+                process.exit(0);
+            });
+    });
+    process.on('SIGINT', () => {
+        _logger.notice(`graceful shutdown requested by SIGINT`);
+        _workerManager.shutdown()
+            .then(() => {
+                _logger.info(`workers disconnected`);
+                process.exit(0);
+            });
     });
 
     // reload event
     process.on('SIGHUP', () => {
-        _logger.info('hot-reloading requested by SIGHUP');
+        _logger.notice('hot-reloading requested by SIGHUP');
 
         // reload active ?
         if (reloadInProgress === true){
@@ -120,25 +59,35 @@ function initializeCluster(options={}){
         reloadInProgress = true;
 
         // trigger reload
-        hotReload(() => {
-            _logger.info('hot-reloading FINISHED');
-            reloadInProgress = false;
-        });
+        _hotReload()
+            .then(() => {
+                _logger.notice('hot-reloading FINISHED');
+                reloadInProgress = false;
+            });
     });
 
     // observer workers (all instances)
     _cluster.on('exit', (worker, code, signal) => {
         // gracefull shutdown/disconnect ?
         if (worker.exitedAfterDisconnect === true) {
-            _logger.info(`worker ${worker.process.pid} disconnnected`);
+            _logger.info(`worker ${worker.process.pid} exited after disconnnect`);
             return;
         }
 
-        // log unexpected behaviour
-        _logger.warn(`worker ${worker.process.pid} died - ${code}/${signal} - restarting..`);
+        // killed by signal ?
+        if (signal){
+            // log external signals
+            _logger.alert(`worker ${worker.process.pid} terminated by signal ${signal} - restarting..`);
+        }else{
+            // log unexpected behaviour
+            _logger.alert(`worker ${worker.process.pid} died - ${code}/${signal} - restarting..`);
+        }
 
-        // restart worker
-        startWorker()
+        // restart worker - should never throw an error
+        _workerManager.start(true)
+            .catch(err => {
+                _logger.alert(`starting new worker failed`, err);
+            });
     });
 
     // observe worker listening events (networking active)
@@ -147,16 +96,21 @@ function initializeCluster(options={}){
     });
 
     // spawn n workers
-    for (let i = 0; i<numWorkers ; i++){
-        startWorker();
-    }
+    return Promise.all(Array(numWorkers).fill(0).map(() => _workerManager.start()));
 }
 
 module.exports = {
     init: function(application, options={}){
         // is master process ?
         if (_cluster.isMaster){
-            initializeCluster(options);
+            // try to initialize the cluster (async)
+            initializeCluster(options)
+                .then(() => {
+                    _logger.notice('cluster online');
+                })
+                .catch(err => {
+                    _logger.emergency('cannot initialize cluster', err);
+                })
 
         // new child process startup
         }else{
