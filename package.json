@@ -1,7 +1,7 @@
 {
     "name": "cluster-magic",
     "description": "run multi-threaded node.js network applications using the native cluster module",
-    "version": "1.1.0",
+    "version": "1.1.1",
     "author": "Andi Dittrich",
     "license": "MIT",
     "homepage": "https://github.com/AndiDittrich/Node.cluster-magic",
@@ -16,7 +16,7 @@
         "test": "eslint cluster-magic.js; mocha"
     },
     "dependencies": {
-        "logging-facility": "^1.1.0"
+        "logging-facility": "^2.0.1"
     },
     "devDependencies": {
         "eslint": "^4.15.0",
